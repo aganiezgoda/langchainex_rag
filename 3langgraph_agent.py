@@ -30,7 +30,7 @@ import operator
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
@@ -116,6 +116,15 @@ class AgentState(TypedDict):
 # =============================================================================
 # Nodes are functions that take the current state and return updates to it.
 
+SYSTEM_PROMPT = SystemMessage(content=(
+    "You are a helpful assistant with access to tools. "
+    "When a task requires multiple steps where one step depends on the result of another, "
+    "call tools SEQUENTIALLY - wait for each result before calling the next tool. "
+    "For example, if asked to get a word's length and then multiply it, first call get_word_length, "
+    "then use the actual result to call multiply. Do NOT guess values for dependent calculations."
+))
+
+
 def agent_node(state: AgentState) -> dict:
     """
     The 'agent' node: calls the LLM to decide what to do next.
@@ -126,6 +135,9 @@ def agent_node(state: AgentState) -> dict:
     """
     print("\n🤖 [Agent Node] Calling LLM...")
     messages = state["messages"]
+    # Prepend system prompt if not already present
+    if not messages or not isinstance(messages[0], SystemMessage):
+        messages = [SYSTEM_PROMPT] + list(messages)
     response = llm_with_tools.invoke(messages)
     print(f"   LLM response: {response.content[:100]}..." if response.content else "   (tool call)")
     return {"messages": [response]}
