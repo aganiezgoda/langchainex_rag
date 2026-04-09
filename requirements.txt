@@ -4,6 +4,7 @@ langchain-community
 langchain-chroma
 langchain-text-splitters
 langchainhub
+langgraph
 openai
 azure-identity
 python-dotenv
