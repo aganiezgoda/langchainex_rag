@@ -84,10 +84,29 @@ def get_word_length(word: str) -> int:
 tools = [get_weather, multiply, get_word_length]
 
 # Print tool metadata
-print("=== Registered Tools ===")
+print("""
+╔═══════════════════════════════════════════════════════════════════╗
+║              ReAct Agent Demo — LangChain + LangGraph             ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  ReAct = Reasoning + Acting                                       ║
+║                                                                   ║
+║  The loop:   THOUGHT  →  ACTION  →  OBSERVATION  →  (repeat)      ║
+║                                                                   ║
+║  • THOUGHT:     LLM reasons about what to do next                 ║
+║  • ACTION:      LLM picks a tool and provides arguments           ║
+║  • OBSERVATION: Tool executes and returns a result                ║
+║  • Loop continues until LLM decides it can answer                 ║
+╚═══════════════════════════════════════════════════════════════════╝
+""")
+
+print("🔧 AVAILABLE TOOLS (the agent can pick from these):")
+print("─" * 65)
 for t in tools:
-    print(f"  {t.name}: {t.description}  args={t.args}")
-print()
+    print(f"  • {t.name}")
+    print(f"    Description: {t.description}")
+    print(f"    Arguments:   {t.args}")
+    print()
+print("─" * 65)
 
 # ── Create the ReAct agent using LangGraph (modern approach) ────────
 # In LangChain 1.x, agents have moved to LangGraph which provides a more
@@ -108,40 +127,162 @@ agent_executor = create_react_agent(
 )
 
 
-def run_agent(query: str) -> str:
-    """Run the agent and return the final answer."""
+def run_agent(query: str, verbose: bool = True) -> str:
+    """
+    Run the agent and return the final answer.
+    
+    When verbose=True, prints each step of the ReAct loop:
+      - THOUGHT:      What the LLM is reasoning about
+      - ACTION:       Which tool the LLM decides to call (with arguments)
+      - OBSERVATION:  The result returned by the tool
+      - FINAL ANSWER: The agent's conclusion after all reasoning
+    
+    This lets students SEE the Thought -> Action -> Observation cycle.
+    """
     result = agent_executor.invoke({"messages": [HumanMessage(content=query)]})
-    # The result contains all messages; the last one is the final answer
+    
+    if verbose:
+        print("\n┌─────────────────────────────────────────────────────────────┐")
+        print("│                    ReAct Loop Trace                         │")
+        print("└─────────────────────────────────────────────────────────────┘")
+        
+        step_number = 0
+        tools_were_used = False  # Track if any tools were called
+        
+        for msg in result["messages"]:
+            msg_type = type(msg).__name__
+            
+            # HumanMessage = the original user query
+            if msg_type == "HumanMessage":
+                print(f"\n📥 USER QUERY:")
+                print(f"   \"{msg.content}\"")
+            
+            # AIMessage = the LLM's response (may include tool calls)
+            elif msg_type == "AIMessage":
+                # Check if the LLM decided to call tool(s)
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    tools_were_used = True
+                    for tc in msg.tool_calls:
+                        step_number += 1
+                        print(f"\n🔷 STEP {step_number}")
+                        print(f"   💭 THOUGHT: The LLM decided it needs to use a tool to answer.")
+                        print(f"   🔧 ACTION:  Call tool '{tc['name']}' with args: {tc['args']}")
+                else:
+                    # No tool call in THIS message
+                    if msg.content:
+                        if tools_were_used:
+                            # This is the final answer AFTER using tools
+                            print(f"\n🏁 FINAL REASONING (after tool observations):")
+                        else:
+                            # No tools were used at all — LLM answered directly
+                            print(f"\n💬 LLM RESPONSE (no tools needed — answered from knowledge):")
+                        # Truncate very long responses for readability
+                        content_preview = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+                        print(f"   {content_preview}")
+            
+            # ToolMessage = the result from executing a tool
+            elif msg_type == "ToolMessage":
+                print(f"   👁️ OBSERVATION: Tool returned → \"{msg.content}\"")
+        
+        print("\n" + "─" * 65)
+    
+    # The last message is always the final answer
     return result["messages"][-1].content
 
+
+
 # ── Run examples ────────────────────────────────────────────────────
+# Each example demonstrates a different aspect of the ReAct pattern.
+# Watch the "ReAct Loop Trace" output to see exactly how the agent reasons!
 
-print("\n" + "=" * 60)
-print("Example 1: Simple tool call (weather)")
-print("=" * 60)
+print("\n" + "=" * 65)
+print("📚 Example 1: SINGLE TOOL CALL")
+print("=" * 65)
+print("""
+LEARNING POINT: The simplest ReAct scenario.
+- Agent receives a question it cannot answer from training data alone.
+- It recognizes 'weather' keyword and decides to use get_weather tool.
+- After ONE action-observation cycle, it has enough info for the answer.
+""")
 result1 = run_agent("What's the weather in Warsaw?")
-print(f"\nFinal answer: {result1}\n")
+print(f"✅ FINAL ANSWER: {result1}\n")
 
-print("\n" + "=" * 60)
-print("Example 2: Multi-step reasoning (math + word length)")
-print("=" * 60)
+print("\n" + "=" * 65)
+print("📚 Example 2: MULTI-STEP REASONING (chained tool calls)")
+print("=" * 65)
+print("""
+LEARNING POINT: The agent must chain multiple tools in sequence.
+- First, it calls get_word_length to count letters.
+- Then, it uses that OBSERVATION as input for the multiply tool.
+- This shows how the agent "remembers" previous results and reasons over them.
+""")
 result2 = run_agent(
     "How many letters are in the word 'intelligence'? "
     "Multiply that number by 7. What's the result?"
 )
-print(f"\nFinal answer: {result2}\n")
+print(f"✅ FINAL ANSWER: {result2}\n")
 
-print("\n" + "=" * 60)
-print("Example 3: Agent decides it does NOT need a tool")
-print("=" * 60)
+print("\n" + "=" * 65)
+print("📚 Example 3: NO TOOL NEEDED")
+print("=" * 65)
+print("""
+LEARNING POINT: The agent is NOT forced to use tools!
+- It evaluates whether a tool would help.
+- For general knowledge questions, it relies on its training data.
+- This shows the REASONING part of ReAct — deciding when NOT to act.
+""")
 result3 = run_agent("What is the capital of France?")
-print(f"\nFinal answer: {result3}\n")
+print(f"✅ FINAL ANSWER: {result3}\n")
 
-print("\n" + "=" * 60)
-print("Example 4: Multiple tools in sequence")
-print("=" * 60)
+print("\n" + "=" * 65)
+print("📚 Example 4: MULTIPLE PARALLEL CONCERNS")
+print("=" * 65)
+print("""
+LEARNING POINT: Complex queries may require multiple different tools.
+- The agent breaks down the question into sub-tasks.
+- It may call the same tool multiple times (weather for 2 cities).
+- It also uses a completely different tool (multiply for cost).
+- Watch how it combines all observations into one coherent final answer.
+""")
 result4 = run_agent(
     "I'm planning a trip. What's the weather in London and Tokyo? "
     "Also, if a hotel costs 120 per night and I stay 5 nights, what's the total?"
 )
-print(f"\nFinal answer: {result4}\n")
+print(f"✅ FINAL ANSWER: {result4}\n")
+
+# ── Recap for students ──────────────────────────────────────────────
+print("""
+╔═══════════════════════════════════════════════════════════════════╗
+║                         🎓 KEY TAKEAWAYS                          ║
+╠═══════════════════════════════════════════════════════════════════╣
+║                                                                   ║
+║  1. ReAct = Reasoning + Acting                                    ║
+║     The LLM doesn't just respond — it THINKS about which tools    ║
+║     to use, calls them, observes the results, and reasons again.  ║
+║                                                                   ║
+║  2. The loop is DYNAMIC                                           ║
+║     Unlike a fixed chain, the agent decides at each step:         ║
+║       • Do I need a tool? Which one?                              ║
+║       • What arguments should I pass?                             ║
+║       • Do I have enough info now, or should I continue?          ║
+║                                                                   ║
+║  3. Tools extend LLM capabilities                                 ║
+║     The LLM can't check real weather or do precise math well.     ║
+║     Tools give it "superpowers" — external APIs, databases, etc.  ║
+║                                                                   ║
+║  4. The system prompt matters                                     ║
+║     We told the agent to "explain reasoning step by step."        ║
+║     This encourages Chain-of-Thought style outputs.               ║
+║                                                                   ║
+║  5. create_react_agent handles the loop                           ║
+║     Under the hood, LangGraph orchestrates the Thought-Action-    ║
+║     Observation cycle. You just provide the LLM and tools.        ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Next steps for students:
+  • Try adding your own tool (e.g., a calculator, web search, database lookup)
+  • Modify the system prompt and see how the agent's behavior changes
+  • Ask a question that requires 3+ tool calls in sequence
+  • Ask a question where the agent might use the WRONG tool — observe!
+""")
