@@ -5,7 +5,7 @@ langchain-chroma==1.1.0
 langchain-text-splitters==1.1.1
 langchainhub==0.1.21
 langgraph==1.1.6
-openai==2.15.0
+openai==2.26.0
 azure-identity==1.21.0
 python-dotenv==1.2.2
 beautifulsoup4==4.14.3
